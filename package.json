@@ -2,8 +2,10 @@
   "name": "songo-game",
   "version": "1.0.0",
   "description": "Le Songo – Jeu de semailles africain",
+  "scripts": {
+    "build": "echo 'No build step needed'"
+  },
   "dependencies": {
-    "pusher": "^5.2.0",
-    "pusher-js": "^8.4.0"
+    "pusher": "^5.2.0"
   }
 }
