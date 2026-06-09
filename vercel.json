@@ -1,13 +1,14 @@
 {
   "version": 2,
   "name": "songo-game",
-  "outputDirectory": "public",
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/:path*" },
-    { "source": "/online",     "destination": "/online.html" },
-    { "source": "/",           "destination": "/index.html" }
+  "builds": [
+    { "src": "api/*.js", "use": "@vercel/node" },
+    { "src": "public/**", "use": "@vercel/static" }
   ],
-  "functions": {
-    "api/*.js": { "memory": 128, "maxDuration": 10 }
-  }
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/$1" },
+    { "src": "/online",   "dest": "/public/online.html" },
+    { "src": "/",         "dest": "/public/index.html" },
+    { "src": "/(.*)",     "dest": "/public/$1" }
+  ]
 }
