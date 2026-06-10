@@ -7,14 +7,24 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // ── Vérification variables d'environnement ──
   const { PUSHER_APP_ID, PUSHER_KEY, PUSHER_SECRET, PUSHER_CLUSTER } = process.env;
+
+  // Diagnostic clair des variables manquantes
   if (!PUSHER_APP_ID || !PUSHER_KEY || !PUSHER_SECRET || !PUSHER_CLUSTER) {
-    console.error('Variables Pusher manquantes:', { PUSHER_APP_ID: !!PUSHER_APP_ID, PUSHER_KEY: !!PUSHER_KEY, PUSHER_SECRET: !!PUSHER_SECRET, PUSHER_CLUSTER: !!PUSHER_CLUSTER });
-    return res.status(500).json({ error: 'Configuration serveur manquante. Vérifiez les variables d\'environnement Pusher sur Vercel.' });
+    const missing = ['PUSHER_APP_ID','PUSHER_KEY','PUSHER_SECRET','PUSHER_CLUSTER']
+      .filter(k => !process.env[k]);
+    console.error('Variables Pusher manquantes sur Vercel:', missing);
+    return res.status(500).json({
+      error: `Variables d'environnement manquantes sur Vercel: ${missing.join(', ')}`,
+      playerIdx: -1,
+      game: null
+    });
   }
 
-  const pusher = new Pusher({ appId: PUSHER_APP_ID, key: PUSHER_KEY, secret: PUSHER_SECRET, cluster: PUSHER_CLUSTER, useTLS: true });
+  const pusher = new Pusher({
+    appId: PUSHER_APP_ID, key: PUSHER_KEY,
+    secret: PUSHER_SECRET, cluster: PUSHER_CLUSTER, useTLS: true
+  });
 
   try {
     const game = getGame();
@@ -27,7 +37,6 @@ module.exports = async (req, res) => {
       game.phase   = 'playing';
       game.message = 'Les deux joueurs sont connectés ! Joueur 1, commencez.';
     }
-
     saveGame(game);
 
     await pusher.trigger(CHANNEL, 'state', {
@@ -36,9 +45,8 @@ module.exports = async (req, res) => {
     });
 
     return res.status(200).json({ playerIdx, game });
-
   } catch (err) {
-    console.error('Erreur join:', err);
-    return res.status(500).json({ error: err.message });
+    console.error('Erreur join:', err.message);
+    return res.status(500).json({ error: err.message, playerIdx: -1, game: null });
   }
 };
