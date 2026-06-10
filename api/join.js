@@ -9,13 +9,14 @@ module.exports = async (req, res) => {
 
   const { PUSHER_APP_ID, PUSHER_KEY, PUSHER_SECRET, PUSHER_CLUSTER } = process.env;
 
-  // Diagnostic clair des variables manquantes
-  if (!PUSHER_APP_ID || !PUSHER_KEY || !PUSHER_SECRET || !PUSHER_CLUSTER) {
-    const missing = ['PUSHER_APP_ID','PUSHER_KEY','PUSHER_SECRET','PUSHER_CLUSTER']
-      .filter(k => !process.env[k]);
-    console.error('Variables Pusher manquantes sur Vercel:', missing);
+  // Retourner les variables manquantes directement dans la réponse pour diagnostic
+  const missing = ['PUSHER_APP_ID','PUSHER_KEY','PUSHER_SECRET','PUSHER_CLUSTER']
+    .filter(k => !process.env[k]);
+
+  if (missing.length > 0) {
     return res.status(500).json({
-      error: `Variables d'environnement manquantes sur Vercel: ${missing.join(', ')}`,
+      error: `VARIABLES MANQUANTES SUR VERCEL: ${missing.join(', ')}`,
+      fix: 'Allez sur vercel.com > votre projet > Settings > Environment Variables et ajoutez ces variables, puis cliquez Redeploy',
       playerIdx: -1,
       game: null
     });
@@ -28,7 +29,6 @@ module.exports = async (req, res) => {
 
   try {
     const game = getGame();
-
     let playerIdx = -1;
     if (!game.player0Connected)      { game.player0Connected = true; playerIdx = 0; }
     else if (!game.player1Connected) { game.player1Connected = true; playerIdx = 1; }
@@ -46,7 +46,10 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({ playerIdx, game });
   } catch (err) {
-    console.error('Erreur join:', err.message);
-    return res.status(500).json({ error: err.message, playerIdx: -1, game: null });
+    return res.status(500).json({
+      error: `Erreur Pusher: ${err.message}`,
+      playerIdx: -1,
+      game: null
+    });
   }
 };
