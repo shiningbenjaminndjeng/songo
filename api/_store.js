@@ -1,41 +1,51 @@
 /**
  * api/_store.js
- * État du jeu partagé entre les fonctions serverless (même instance Node.js).
- * Sur Vercel, une instance peut servir plusieurs requêtes concurrentes –
- * ce module-level state est donc partagé au sein d'une même instance.
- *
- * NOTE : Pour une production robuste, remplacer par Vercel KV (Redis).
- * Pour une démo/TP, cet état en mémoire fonctionne parfaitement.
+ * État du jeu persisté dans /tmp (partagé entre fonctions serverless Vercel).
  */
+const fs   = require('fs');
+const path = require('path');
+
+const STATE_FILE = path.join('/tmp', 'songo_state.json');
+const CHANNEL    = 'songo-game';
 
 const SEEDS = 4;
 const HOLES = 12;
-
-const CHANNEL = 'songo-game';
+const P1_ROW = [6,7,8,9,10,11];
+const P2_ROW = [0,1,2,3,4,5];
 
 function createGameState() {
   return {
-    board:             Array(HOLES).fill(SEEDS),
-    scores:            [0, 0],
-    currentPlayer:     0,
-    gameOver:          false,
-    phase:             'waiting',   // 'waiting' | 'playing' | 'ended'
-    message:           'En attente des joueurs…',
-    player0Connected:  false,
-    player1Connected:  false,
+    board:            Array(HOLES).fill(SEEDS),
+    scores:           [0, 0],
+    currentPlayer:    0,
+    gameOver:         false,
+    phase:            'waiting',
+    message:          'En attente des joueurs…',
+    player0Connected: false,
+    player1Connected: false,
   };
 }
 
-// Singleton en mémoire
-let _game = createGameState();
+function getGame() {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      const raw = fs.readFileSync(STATE_FILE, 'utf8');
+      return JSON.parse(raw);
+    }
+  } catch (e) { /* ignore, retourne état initial */ }
+  return createGameState();
+}
 
-function getGame()     { return _game; }
-function saveGame(g)   { _game = g; }
-function resetGame()   { _game = createGameState(); }
+function saveGame(g) {
+  try { fs.writeFileSync(STATE_FILE, JSON.stringify(g), 'utf8'); }
+  catch (e) { console.error('saveGame error:', e.message); }
+}
 
-// ── Logique du jeu ──────────────────────────────────────────
-const P1_ROW = [6,7,8,9,10,11];
-const P2_ROW = [0,1,2,3,4,5];
+function resetGame() {
+  const g = createGameState();
+  saveGame(g);
+  return g;
+}
 
 function getSowingOrder(startIdx) {
   const seq = [6,7,8,9,10,11,5,4,3,2,1,0];
@@ -52,13 +62,11 @@ function processMove(game, startIdx) {
   const opponentRow = game.currentPlayer === 0 ? P2_ROW : P1_ROW;
   const seeds = game.board[startIdx];
   game.board[startIdx] = 0;
-
-  const order   = getSowingOrder(startIdx);
-  const targets = order.slice(0, seeds);
+  const targets = getSowingOrder(startIdx).slice(0, seeds);
   targets.forEach(i => { game.board[i]++; });
 
-  const lastSown  = targets[targets.length - 1];
-  let   captured  = 0;
+  const lastSown = targets[targets.length - 1];
+  let captured = 0;
 
   if (opponentRow.includes(lastSown)) {
     const globalSeq = [6,7,8,9,10,11,5,4,3,2,1,0];
