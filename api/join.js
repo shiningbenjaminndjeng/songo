@@ -1,5 +1,13 @@
-const { createPusher } = require('./_pusher');
+const Pusher = require('pusher');
 const { getGame, saveGame, CHANNEL } = require('./_store');
+
+const pusher = new Pusher({
+  appId:   '2164792',
+  key:     'f8590f345168518bca77',
+  secret:  '95449bd24336f8611eeb',
+  cluster: 'eu',
+  useTLS:  true,
+});
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -8,14 +16,13 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    const pusher = createPusher();
     const game = getGame();
 
     let playerIdx = -1;
     if (!game.player0Connected)      { game.player0Connected = true; playerIdx = 0; }
     else if (!game.player1Connected) { game.player1Connected = true; playerIdx = 1; }
 
-    if (game.player0Connected && game.player1Connected && game.phase === 'waiting') {
+    if (game.player0Connected && game.player1Connected && game.phase !== 'playing' && game.phase !== 'ended') {
       game.phase   = 'playing';
       game.message = 'Les deux joueurs sont connectés ! Joueur 1, commencez.';
     }
@@ -28,7 +35,7 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({ playerIdx, game });
   } catch (err) {
-    console.error('Erreur join:', err.message);
+    console.error('join error:', err.message);
     return res.status(500).json({ error: err.message, playerIdx: -1, game: null });
   }
 };
