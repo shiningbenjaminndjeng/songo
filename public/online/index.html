@@ -274,6 +274,16 @@ const EVENT_STATE    = 'state';
 let myPlayerIdx = -1;
 let gameState   = null;
 
+// Session persistante pour conserver son rôle entre rechargements
+function getSessionId() {
+  let sid = sessionStorage.getItem('songo_sid');
+  if (!sid) {
+    sid = 's' + Math.random().toString(36).slice(2) + Date.now();
+    sessionStorage.setItem('songo_sid', sid);
+  }
+  return sid;
+}
+
 // ── PUSHER (réception temps réel) ─────────────────────────
 const pusher  = new Pusher(PUSHER_KEY, { cluster: PUSHER_CLUSTER });
 const channel = pusher.subscribe(CHANNEL_NAME);
@@ -297,12 +307,21 @@ channel.bind(EVENT_STATE, (data) => {
   renderAll();
 });
 
+// Événement reset : vider la session et se reconnecter comme nouveau joueur
+channel.bind('reset', () => {
+  logEntry('sys', '🔄 Nouvelle partie — reconnexion…');
+  sessionStorage.removeItem('songo_sid');
+  myPlayerIdx = -1;
+  gameState = null;
+  setTimeout(() => joinGame(), 500);
+});
+
 // ── API CALLS ──────────────────────────────────────────────
 async function joinGame() {
   logEntry('s', '→ POST /api/join');
   try {
     const r = await fetch('/api/join', { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: getSessionId() }) });
     const d = await r.json();
     myPlayerIdx = d.playerIdx;
     gameState   = d.game;
