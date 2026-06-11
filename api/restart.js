@@ -6,8 +6,9 @@ const pusher = new Pusher({
   secret: '95449bd24336f8611eeb', cluster: 'eu', useTLS: true,
 });
 
-// Référence partagée avec move.js (même instance)
-const moveModule = require('./move');
+// Importer les sessions de join pour les réinitialiser
+let joinModule;
+try { joinModule = require('./join'); } catch(e) {}
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -16,14 +17,19 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
+    // Réinitialiser les sessions dans join.js
+    // On passe par Pusher pour notifier tous les clients de se reconnecter
     const newGame = {
       board: Array(12).fill(4), scores: [0,0], currentPlayer: 0,
-      gameOver: false, phase: 'playing',
-      message: 'Nouvelle partie ! Joueur 1 commence.',
-      player0Connected: true, player1Connected: true,
+      gameOver: false, phase: 'waiting',
+      message: 'Nouvelle partie ! Reconnectez-vous.',
+      player0Connected: false, player1Connected: false,
     };
 
+    // Envoyer event spécial pour forcer reconnexion des clients
+    await pusher.trigger(CHANNEL, 'reset', {});
     await pusher.trigger(CHANNEL, 'state', newGame);
+
     return res.status(200).json({ ok: true, game: newGame });
   } catch (err) {
     return res.status(500).json({ error: err.message });
