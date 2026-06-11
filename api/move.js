@@ -1,13 +1,22 @@
 const Pusher = require('pusher');
-const { CHANNEL, P1_ROW, P2_ROW, getGame, saveGame, canPlay, processMove, endGame } = require('./_store');
+const { CHANNEL, P1_ROW, P2_ROW, canPlay, processMove, endGame } = require('./_store');
 
 const pusher = new Pusher({
-  appId:   '2164792',
-  key:     'f8590f345168518bca77',
-  secret:  '95449bd24336f8611eeb',
-  cluster: 'eu',
-  useTLS:  true,
+  appId: '2164792', key: 'f8590f345168518bca77',
+  secret: '95449bd24336f8611eeb', cluster: 'eu', useTLS: true,
 });
+
+// État partagé dans cette instance
+let gameState = null;
+
+function freshGame() {
+  return {
+    board: Array(12).fill(4), scores: [0,0], currentPlayer: 0,
+    gameOver: false, phase: 'playing',
+    message: 'Joueur 1, commencez.',
+    player0Connected: true, player1Connected: true,
+  };
+}
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -23,56 +32,52 @@ module.exports = async (req, res) => {
       body = JSON.parse(Buffer.concat(chunks).toString());
     }
 
-    const { playerIdx, cellIdx } = body;
+    const { playerIdx, cellIdx, clientState } = body;
 
-    // Lire l'état depuis /tmp
-    let game = getGame();
-
-    // Si la partie est en phase 'waiting' à cause d'une instance fraîche,
-    // on force 'playing' si les deux joueurs étaient déjà connectés
-    if (game.phase === 'waiting' && (game.player0Connected || game.player1Connected)) {
-      game.phase = 'playing';
-      game.player0Connected = true;
-      game.player1Connected = true;
-      saveGame(game);
+    // Utiliser l'état envoyé par le client si le serveur n'en a pas
+    if (!gameState || gameState.gameOver) {
+      gameState = clientState || freshGame();
     }
 
-    // Validation du joueur
+    // Forcer phase playing
+    gameState.phase = 'playing';
+    gameState.player0Connected = true;
+    gameState.player1Connected = true;
+
+    // Validations
     if (typeof playerIdx === 'undefined' || playerIdx === null)
       return res.status(400).json({ error: 'playerIdx manquant.' });
+    if (playerIdx !== gameState.currentPlayer)
+      return res.status(400).json({ error: "Ce n'est pas votre tour." });
 
     const ownRow = playerIdx === 0 ? P1_ROW : P2_ROW;
     if (!ownRow.includes(cellIdx))
       return res.status(400).json({ error: 'Case invalide.' });
-    if (game.board[cellIdx] === 0)
+    if (gameState.board[cellIdx] === 0)
       return res.status(400).json({ error: 'Case vide.' });
-    if (playerIdx !== game.currentPlayer)
-      return res.status(400).json({ error: "Ce n'est pas votre tour." });
 
-    const { captured } = processMove(game, cellIdx);
+    const { captured } = processMove(gameState, cellIdx);
 
-    if (!canPlay(game, 0) || !canPlay(game, 1)) {
-      endGame(game);
-      saveGame(game);
-      await pusher.trigger(CHANNEL, 'state', game);
-      return res.status(200).json({ ok: true, game });
+    if (!canPlay(gameState, 0) || !canPlay(gameState, 1)) {
+      endGame(gameState);
+      await pusher.trigger(CHANNEL, 'state', gameState);
+      return res.status(200).json({ ok: true, game: gameState });
     }
 
-    game.currentPlayer = 1 - game.currentPlayer;
-    const pName = game.currentPlayer === 0 ? 'Joueur 1' : 'Joueur 2';
-    game.message = captured > 0
+    gameState.currentPlayer = 1 - gameState.currentPlayer;
+    const pName = gameState.currentPlayer === 0 ? 'Joueur 1' : 'Joueur 2';
+    gameState.message = captured > 0
       ? `✨ ${captured} graine${captured>1?'s':''}! Au tour de ${pName}.`
       : `Au tour de ${pName}.`;
 
-    if (!canPlay(game, game.currentPlayer)) {
-      game.message = `${pName} ne peut pas jouer – tour sauté.`;
-      game.currentPlayer = 1 - game.currentPlayer;
-      if (!canPlay(game, game.currentPlayer)) endGame(game);
+    if (!canPlay(gameState, gameState.currentPlayer)) {
+      gameState.message = `${pName} ne peut pas jouer – tour sauté.`;
+      gameState.currentPlayer = 1 - gameState.currentPlayer;
+      if (!canPlay(gameState, gameState.currentPlayer)) endGame(gameState);
     }
 
-    saveGame(game);
-    await pusher.trigger(CHANNEL, 'state', game);
-    return res.status(200).json({ ok: true, game });
+    await pusher.trigger(CHANNEL, 'state', gameState);
+    return res.status(200).json({ ok: true, game: gameState });
 
   } catch (err) {
     console.error('move error:', err.message);
