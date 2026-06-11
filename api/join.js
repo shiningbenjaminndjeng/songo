@@ -6,10 +6,6 @@ const pusher = new Pusher({
   secret: '95449bd24336f8611eeb', cluster: 'eu', useTLS: true,
 });
 
-// Compteur de joueurs connectés (valide dans la même instance)
-let connectedPlayers = 0;
-let gameState = null;
-
 function freshGame() {
   return {
     board: Array(12).fill(4), scores: [0,0], currentPlayer: 0,
@@ -19,6 +15,10 @@ function freshGame() {
   };
 }
 
+// Sessions actives : { sessionId -> playerIdx }
+const sessions = {};
+let sharedGame = freshGame();
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -26,19 +26,59 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    // Assigner un index joueur
-    const playerIdx = connectedPlayers < 2 ? connectedPlayers : -1;
-    connectedPlayers = Math.min(connectedPlayers + 1, 2);
+    // Lire le body pour récupérer un éventuel sessionId
+    let body = {};
+    try {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const raw = Buffer.concat(chunks).toString();
+      if (raw) body = JSON.parse(raw);
+    } catch(e) {}
 
-    // Créer ou récupérer l'état de jeu
-    if (!gameState || gameState.gameOver) {
-      gameState = freshGame();
+    const sessionId = body.sessionId || null;
+
+    // Si cette session a déjà un rôle, le réutiliser
+    if (sessionId && sessions[sessionId] !== undefined) {
+      const playerIdx = sessions[sessionId];
+      await pusher.trigger(CHANNEL, 'state', sharedGame);
+      return res.status(200).json({ playerIdx, game: sharedGame });
     }
 
-    // Diffuser l'état à tous les clients
-    await pusher.trigger(CHANNEL, 'state', gameState);
+    // Nettoyer les sessions trop nombreuses (évite fuite mémoire)
+    const sessionKeys = Object.keys(sessions);
+    if (sessionKeys.length > 10) {
+      sessionKeys.slice(0, 5).forEach(k => delete sessions[k]);
+    }
 
-    return res.status(200).json({ playerIdx, game: gameState });
+    // Compter les joueurs actifs (0 et 1)
+    const activePlayers = Object.values(sessions);
+    const hasPlayer0 = activePlayers.includes(0);
+    const hasPlayer1 = activePlayers.includes(1);
+
+    let playerIdx;
+    if (!hasPlayer0) {
+      playerIdx = 0;
+    } else if (!hasPlayer1) {
+      playerIdx = 1;
+    } else {
+      playerIdx = -1; // spectateur
+    }
+
+    // Enregistrer la session
+    if (sessionId && playerIdx >= 0) {
+      sessions[sessionId] = playerIdx;
+    }
+
+    // Réinitialiser le jeu si les deux joueurs viennent de se connecter
+    if (playerIdx === 1 || (playerIdx === 0 && !hasPlayer1)) {
+      if (sharedGame.gameOver) {
+        sharedGame = freshGame();
+      }
+    }
+
+    await pusher.trigger(CHANNEL, 'state', sharedGame);
+    return res.status(200).json({ playerIdx, game: sharedGame });
+
   } catch (err) {
     console.error('join error:', err.message);
     return res.status(500).json({ error: err.message, playerIdx: -1, game: null });
