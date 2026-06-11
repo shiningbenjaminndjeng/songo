@@ -318,7 +318,7 @@ async function sendMove(cellIdx) {
     const r = await fetch('/api/move', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerIdx: myPlayerIdx, cellIdx }),
+      body: JSON.stringify({ playerIdx: myPlayerIdx, cellIdx, clientState: gameState }),
     });
     const d = await r.json();
     if (!r.ok) { setMsg(`⚠️ ${d.error}`); logEntry('sys', `⚠️ ${d.error}`); }
